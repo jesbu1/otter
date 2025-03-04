@@ -1,0 +1,29 @@
+[project]
+name = "otter"
+version = "0.1.0"
+
+dependencies=[
+    "Pillow",
+    "opencv-python",
+    "tqdm", 
+    "tensorboard",
+    "scipy",
+    "timm",
+    "matplotlib", 
+    "tyro", 
+    "loralib",
+    "h5py",
+    "wandb",
+    "mediapy",
+    "zarr==2.12.0", 
+    "pymunk==6.2.1", 
+    "dlimp @ git+https://github.com/kvablack/dlimp.git",
+    "clip @ git+https://github.com/openai/CLIP.git@main", 
+    "transformers==4.48.2", 
+    "tensorflow",
+    "tensorflow_datasets"
+]
+
+requires-python= ">=3.10"
+[tool.setuptools.packages.find]
+include = ["otter"]

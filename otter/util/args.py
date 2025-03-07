@@ -167,7 +167,7 @@ class ModelConfig:
     hidden_dropout_prob : int = 0.0
 
     # only true text token are used for attention pooling 
-    pool_true_text : bool = True
+    pool_true_text : bool = False
 
 @dataclasses.dataclass
 class ActionDecoderConfig:

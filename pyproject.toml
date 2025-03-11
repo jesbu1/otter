@@ -19,6 +19,7 @@ dependencies=[
     "pymunk==6.2.1", 
     "dlimp @ git+https://github.com/kvablack/dlimp.git",
     "clip @ git+https://github.com/openai/CLIP.git@main", 
+    "open_clip_torch",
     "transformers==4.48.2", 
     "tensorflow",
     "tensorflow_datasets"

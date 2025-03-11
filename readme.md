@@ -7,7 +7,10 @@ This repo contains the official re-implementation for *Otter: A Vision-Language-
 
 Further information please contact <a href="https://qingh097.github.io/">Huang Huang</a>, <a href="https://fangchenliu.github.io/">Fangchen Liu</a>, <a href="https://max-fu.github.io">Letian Fu</a>, or post an issue on Github!
 
-## Updates 
+## Todos 
+- [OpenCLIP](https://github.com/mlfoundations/open_clip) integration to allow training and inference with more powerful CLIP models.
+
+## Updates  
 - 2025-03-05: Initial release. 
 
 ## Setup
@@ -91,6 +94,10 @@ python script/train.py --help
 We provide a script for visualizing the CLIP's visual patch feature's cosine similarity with the text features. For more detail, please refer to the [script](script/clip_visualization.py).
 ```bash
 python script/clip_visualization.py --text "pour from the orange cup into the pink bowl" --image asset/droid_image.png 
+```
+You can also visualize with more powerful CLIP models with [OpenCLIP](https://github.com/mlfoundations/open_clip). A good combination we find is the ViT-L-14 `datacomp_xl_s13b_b90k` version. 
+```bash 
+python script/open_clip_visualization.py --text "pour from the orange cup into the pink bowl" --image asset/droid_image.png 
 ```
 
 ## License

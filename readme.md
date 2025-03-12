@@ -3,7 +3,7 @@ by <a href="https://qingh097.github.io/">Huang Huang*</a>, <a href="https://fang
 
 [[Paper](http://arxiv.org/abs/2503.03734)] | [[Project Page](https://ottervla.github.io/)]
 
-This repo contains the official re-implementation for *Otter: A Vision-Language-Action Model with Text-Aware Feature Extraciton*. The experiments in the paper are based on the original repo [here](https://github.com/Max-Fu/otter) implemented in [Jax](https://github.com/google/jax). 
+This repo contains the official re-implementation for *Otter: A Vision-Language-Action Model with Text-Aware Feature Extraciton*. The experiments in the paper are based on the original repo [here](https://github.com/FangchenLiu/otter_jax) implemented in [Jax](https://github.com/google/jax). 
 
 Further information please contact <a href="https://qingh097.github.io/">Huang Huang</a>, <a href="https://fangchenliu.github.io/">Fangchen Liu</a>, <a href="https://max-fu.github.io">Letian Fu</a>, or post an issue on Github!
 

@@ -39,6 +39,7 @@ def main(
     tokenizer = open_clip.get_tokenizer(model_name) 
 
     model.eval()  # model in train mode by default, impacts some models with BatchNorm or stochastic depth active
+    model.to(device)
     print(preprocess)
     print(model)
 

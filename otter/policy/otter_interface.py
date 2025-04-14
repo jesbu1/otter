@@ -183,3 +183,125 @@ class OtterInference():
         # decode actions 
         action = self._decode_actions(action) # (T, D)
         return action
+
+
+class OtterInferenceSim():
+    def __init__(
+            self,
+            model_ckpt_folder: str,
+            ckpt_id: int,
+            device: str = 'cuda',
+    ) -> None:
+        # parse the paths
+        train_yaml_path = os.path.join(model_ckpt_folder, 'run.yaml')
+        model_ckpt_name = os.path.join(model_ckpt_folder, f'checkpoint_{ckpt_id}.pt')
+
+        # load config
+        self.args: ExperimentConfig = yaml.load(Path(train_yaml_path).read_text(), Loader=yaml.Loader)
+        self.device = device
+
+        # construct model
+        self.model = OTTER(
+            model_config=self.args.model_cfg,
+            shared_config=self.args.shared_cfg,
+        )
+        print(f"Loading model from checkpoint: {model_ckpt_name}")
+        self.model = misc.load_state_dict_flexible(self.model, torch.load(model_ckpt_name, map_location='cpu'))
+
+        # freeze all model parameters
+        for param in self.model.parameters():
+            param.requires_grad = False
+
+        # Move model to device
+        self.model = self.model.to(device)
+
+        # model to eval mode
+        self.model.eval()
+
+        # print the statistics of the model before eval
+        print(self.model)
+
+    def _proprocess_proprio(self, proprio: np.ndarray) -> torch.Tensor:
+        """
+        Preprocess proprioception data.
+        Returns:
+            torch.Tensor of shape (self.model.proprio_input_dim)
+        """
+        return torch.tensor(proprio).float().to(self.device)
+
+    def _preprocess_images(self, images: Dict[str, PIL.Image.Image]) -> torch.Tensor:
+        """
+        Preprocess images.
+        Args:
+            images : Dict[str, PIL.Image.Image] with keys: ['image_primary', 'image_wrist']
+
+        Returns:
+            a tensor of shape (2, 3, self.args.shared_cfg.image_size, self.args.shared_cfg.image_size)
+        """
+        # first make sure the keys are matching
+        assert set(images.keys()) == set(self.model.camera_keys)
+
+        out_images = []
+        for key in self.model.camera_keys:
+            image = transforms_f.to_tensor(images[key])
+            image = clip_transform(image)
+            out_images.append(image)
+
+        out_images = torch.stack(out_images, dim=0).float().to(self.device)
+        return out_images
+
+    def _decode_actions(
+            self,
+            actions: Union[np.ndarray, torch.Tensor]
+    ) -> np.ndarray:
+
+        if isinstance(actions, torch.Tensor):
+            actions = actions.detach().cpu().numpy()
+
+        return actions
+
+    def reset(self):
+        """
+        Reset the current proprio state.
+        """
+        self.model.reset_cache()
+
+    def __call__(
+            self,
+            images: Dict[str, PIL.Image.Image],
+            text: str,
+            proprio: np.ndarray,
+    ):
+        """
+        Perform inference.
+
+        Returns:
+            action of shape (self.model.action_horizon, self.model.action_dim)
+        """
+        # preprocess proprioception data
+        proprio = self._proprocess_proprio(proprio)  # shape: (self.model.proprio_input_dim)
+
+        # preprocess text
+        text = clip.tokenize([text]).squeeze().to(self.device)  # shape: (L)
+
+        # create text mask
+        if self.model.pool_true_text:
+            text_mask = create_text_mask(text, self.model.sot_token, self.model.eot_token,
+                                         self.model.first_k_tokens).to(self.device)
+        else:
+            text_mask = None
+
+        # preprocess images
+        images = self._preprocess_images(images)  # shape: (2, 3, H, W)
+
+        # perform inference
+        action = self.model.forward_inference(
+            images=images,
+            text=text,
+            proprio=proprio,
+            text_mask=text_mask,
+        )
+
+        # decode actions
+        action = self._decode_actions(action)  # (T, D)
+        return action

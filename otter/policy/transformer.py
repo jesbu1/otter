@@ -4,65 +4,52 @@ import torch.nn.functional as F
 from typing import Optional, Tuple
 from otter.util.args import ModelConfig
 from timm.layers.mlp import Mlp
-
-class RotaryPositionalEmbedding(nn.Module):
-    def __init__(self, dim: int, max_seq_len: int):
+import numpy as np
+class SinusoidalPositionalEmbedding(nn.Module):
+    """
+    Implements Sinusoidal Positional Encoding (used in Transformer).
+    """
+    def __init__(self, max_seq_len, embed_dim):
         super().__init__()
-        if dim % 2 != 0:
-            raise ValueError(f"Dimension {dim} should be divisible by 2")
-            
-        self.dim = dim
-        inv_freq = 1.0 / (10000 ** (torch.arange(0, dim, 2).float() / dim))
-        self.register_buffer("inv_freq", inv_freq)
+        position = torch.arange(max_seq_len).unsqueeze(1)
+        div_term = torch.exp(torch.arange(0, embed_dim, 2) * (-np.log(10000.0) / embed_dim))
 
-        # Create position indices for the sequence length
-        pos = torch.arange(max_seq_len).float()
-        sinusoid_inp = torch.einsum("i,j->ij", pos, inv_freq)
-        emb = torch.cat((sinusoid_inp.sin(), sinusoid_inp.cos()), dim=-1)
-        self.register_buffer("emb", emb)
+        pe = torch.zeros(max_seq_len, embed_dim)
+        pe[:, 0::2] = torch.sin(position * div_term)
+        pe[:, 1::2] = torch.cos(position * div_term)
 
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        seq_len = x.size(1)
-        return self.emb[:seq_len, :]  # [seq_len, dim]
+        self.register_buffer("pe", pe.unsqueeze(0))  # (1, max_seq_len, embed_dim)
 
-def rotate_half(x: torch.Tensor) -> torch.Tensor:
-    x1, x2 = x[..., :x.shape[-1]//2], x[..., x.shape[-1]//2:]
-    return torch.cat((-x2, x1), dim=-1)
+    def forward(self, x):
+        return x + self.pe[:, :x.size(1)]
+class RotaryPositionalEmbedding(nn.Module):
+    """
+    Implements Rotary Position Embedding (RoPE).
+    Reference: RoFormer (Su et al., 2021) - https://arxiv.org/abs/2104.09864
+    """
+    def __init__(self, max_seq_len, embed_dim):
+        super().__init__()
+        self.embed_dim = embed_dim
 
-def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, pos_emb: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-    # q, k: [batch, n_heads, seq_len, head_dim]
-    # pos_emb: [seq_len, head_dim]
-    seq_len = q.shape[2]
-    head_dim = q.shape[3]
-    
-    # Ensure pos_emb has the right sequence length
-    pos_emb = pos_emb[:seq_len, :]
-    
-    # Split into real and imaginary parts
-    cos = pos_emb[..., :head_dim//2]  # [seq_len, head_dim//2]
-    sin = pos_emb[..., head_dim//2:]  # [seq_len, head_dim//2]
-    
-    # Reshape for broadcasting
-    cos = cos.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, head_dim//2]
-    sin = sin.unsqueeze(0).unsqueeze(0)  # [1, 1, seq_len, head_dim//2]
-    
-    # Split q and k into real and imaginary parts
-    q1, q2 = q[..., :head_dim//2], q[..., head_dim//2:]
-    k1, k2 = k[..., :head_dim//2], k[..., head_dim//2:]
-    
-    # Apply rotation
-    q_out = torch.cat([
-        q1 * cos - q2 * sin,
-        q2 * cos + q1 * sin
-    ], dim=-1)
-    
-    k_out = torch.cat([
-        k1 * cos - k2 * sin,
-        k2 * cos + k1 * sin
-    ], dim=-1)
-    
-    return q_out, k_out
-    
+    def forward(self, x):
+        seq_len, batch_size, dim = x.shape
+        assert dim == self.embed_dim, "Embedding dimension mismatch!"
+
+        # Compute RoPE embeddings
+        theta = 10000 ** (-torch.arange(0, dim, 2).float() / dim)
+        m = torch.arange(seq_len).float().unsqueeze(1) * theta.unsqueeze(0)
+        sin, cos = torch.sin(m), torch.cos(m)
+
+        # Reshape for broadcasting
+        sin = sin.unsqueeze(1)  # (seq_len, 1, dim//2)
+        cos = cos.unsqueeze(1)  # (seq_len, 1, dim//2)
+
+        # Apply rotation
+        x1, x2 = x[..., ::2], x[..., 1::2]  # Split into even/odd
+        x_rope = torch.cat([x1 * cos - x2 * sin, x1 * sin + x2 * cos], dim=-1)
+
+        return x_rope
+
 class MultiHeadAttention(nn.Module):
     def __init__(self, config : ModelConfig):
         super().__init__()
@@ -77,8 +64,7 @@ class MultiHeadAttention(nn.Module):
         self.query = nn.Linear(config.transformer_dim, self.all_head_size)
         self.key = nn.Linear(config.transformer_dim, self.all_head_size)
         self.value = nn.Linear(config.transformer_dim, self.all_head_size)
-        self.rope = RotaryPositionalEmbedding(self.attention_head_size, config.max_position_embeddings)
-        
+
         self.dropout = config.attention_probs_dropout_prob
         self.out = nn.Linear(config.transformer_dim, config.transformer_dim)
 
@@ -97,11 +83,6 @@ class MultiHeadAttention(nn.Module):
         key_layer = self.transpose_for_scores(self.key(hidden_states))
         value_layer = self.transpose_for_scores(self.value(hidden_states))
 
-        # Apply RoPE to query and key
-        pos_emb = self.rope(hidden_states)  # [seq_len, head_dim]
-        query_layer, key_layer = apply_rotary_pos_emb(query_layer, key_layer, pos_emb)
-
-        # Convert attention mask to proper format if provided
         if attention_mask is not None:
             # attention_mask should be broadcastable to [batch, num_heads, seq_len, seq_len]
             attention_mask = attention_mask.unsqueeze(1)  # [batch, 1, seq_len, seq_len]
@@ -127,13 +108,16 @@ class TransformerBlock(nn.Module):
     def __init__(self, config : ModelConfig):
         super().__init__()
         self.attention = MultiHeadAttention(config)
+        self.pre_ln = nn.LayerNorm(config.transformer_dim)
+        self.post_ln = nn.LayerNorm(config.transformer_dim)
         intermediate_size = config.transformer_dim * config.transformer_expansion_factor
-        self.intermediate = nn.Linear(config.transformer_dim, intermediate_size)
-        self.output = nn.Linear(intermediate_size, config.transformer_dim)
-        self.layernorm1 = nn.LayerNorm(config.transformer_dim)
-        self.layernorm2 = nn.LayerNorm(config.transformer_dim)
+        mlp = [
+            nn.Linear(config.transformer_dim, intermediate_size),
+            nn.GELU(),
+            nn.Linear(intermediate_size, config.transformer_dim),
+        ]
+        self.mlp = nn.Sequential(*mlp)
         self.dropout = nn.Dropout(config.hidden_dropout_prob)
-        self.activation = nn.GELU()
 
     def forward(
         self,
@@ -146,18 +130,13 @@ class TransformerBlock(nn.Module):
             assert not is_causal, "Causal mask not supported with attention mask"
 
         attention_output = self.attention(
-            self.layernorm1(hidden_states),
+            self.pre_ln(hidden_states),
             attention_mask,
             is_causal,
         )
         hidden_states = hidden_states + self.dropout(attention_output)
-
-        layer_output = self.layernorm2(hidden_states)
-        layer_output = self.intermediate(layer_output)
-        layer_output = self.activation(layer_output)
-        layer_output = self.output(layer_output)
-        
-        return hidden_states + self.dropout(layer_output)
+        hidden_states = hidden_states + self.dropout(self.mlp(self.post_ln(hidden_states)))
+        return hidden_states
 
 class CausalTransformer(nn.Module):
     """Main policy transformer with RoPE and causal attention"""
@@ -170,7 +149,7 @@ class CausalTransformer(nn.Module):
             TransformerBlock(config)
             for _ in range(config.transformer_layers)
         ])
-        
+
     def forward(
         self, 
         x: torch.Tensor,
@@ -196,6 +175,7 @@ class CrossAttentionBlock(nn.Module):
             out_features=q_dim,
         )
         self.q_layer_norm = nn.LayerNorm(q_dim)
+        self.kv_layer_norm = nn.LayerNorm(kv_input_dim)
         self.layer_norm = nn.LayerNorm(q_dim)
     
     def forward(self, q: torch.Tensor, kv: torch.Tensor, mask: Optional[torch.Tensor] = None) -> torch.Tensor:
@@ -207,10 +187,11 @@ class CrossAttentionBlock(nn.Module):
         """
         # mask: [batch, seq_len], True for tokens to attend to
         q = self.q_layer_norm(q)
+        kv = self.kv_layer_norm(kv)
         attn_out, _ = self.attention(q, kv, kv, key_padding_mask=mask)
         q = q + attn_out  # Add residual connection
-        q = self.layer_norm(q)
-        x = self.mlp(q)
+        x = self.layer_norm(q)
+        x = self.mlp(x)
         return q + x
 
 class AttentionPooling(nn.Module):

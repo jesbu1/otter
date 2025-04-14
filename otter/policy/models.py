@@ -56,9 +56,9 @@ class ActionHead(nn.Module):
         super().__init__()
         self.horizon = horizon
         self.mlp = nn.Sequential(
-            nn.Linear(input_dim, input_dim),
+            nn.Linear(input_dim, input_dim * 2),
             nn.ReLU(),
-            nn.Linear(input_dim, action_dim * horizon)
+            nn.Linear(input_dim * 2, action_dim * horizon)
         )
         
     def forward(self, x: torch.Tensor) -> torch.Tensor:

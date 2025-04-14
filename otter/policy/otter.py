@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import clip
 from typing import Optional, Tuple, List, Union
 from otter.util.args import SharedConfig, ModelConfig
-from .transformer import AttentionPooling, CausalTransformer
+from .transformer import AttentionPooling, CausalTransformer, SinusoidalPositionalEmbedding, RotaryPositionalEmbedding
 from .models import TextAwareVisualExtraction, ProprioceptionEncoder, ActionHead
 from .vision_tf import clip_transform
 from clip.simple_tokenizer import SimpleTokenizer
@@ -61,6 +61,8 @@ class OTTER(nn.Module):
         
         # extract shared config parameters
         self.action_horizon = shared_config.action_horizon
+        self.use_mse = shared_config.mse_loss
+
         self.camera_keys = sorted(shared_config.camera_keys)
         num_cameras = len(self.camera_keys)
         self.seq_length = shared_config.seq_length
@@ -118,8 +120,10 @@ class OTTER(nn.Module):
         )
         
         self.f_t_dim = text_pooling_output_dim + vision_pooling_output_dim + proprio_output_dim
+
         self.input_projection = nn.Linear(self.f_t_dim, model_config.transformer_dim)
-        
+        self.pe = SinusoidalPositionalEmbedding(max_seq_len=shared_config.seq_length, embed_dim=model_config.transformer_dim)
+
         self.policy = CausalTransformer(model_config)
         
         self.action_head = ActionHead(model_config.transformer_dim, self.action_dim, self.action_horizon)
@@ -274,7 +278,7 @@ class OTTER(nn.Module):
         
         # Pass through encoders
         transformer_input = self.forward_encoder(images, text, proprio, text_mask)
-        
+        transformer_input = self.pe(transformer_input)
         # Pass through transformer policy
         policy_output = self.policy(transformer_input)
         
@@ -318,7 +322,8 @@ class OTTER(nn.Module):
         self.update_cache(transformer_input)
         
         # Pass through transformer policy
-        policy_output = self.policy(self.cached_transformer_input) # B, T', transformer_dim
+        cached_transformer_input_w_pe = self.pe(self.cached_transformer_input)
+        policy_output = self.policy(cached_transformer_input_w_pe) # B, T', transformer_dim
         
         # we only process the output of the last timestep
         policy_output = policy_output[:, self.cache_size - 1] # (B, transformer_dim)
@@ -369,7 +374,10 @@ class OTTER(nn.Module):
         # if gt_actions is not None, calculate loss
         if gt_actions is not None:
             # Calculate loss
-            loss = F.l1_loss(actions, gt_actions)
+            if self.use_mse:
+                loss = F.mse_loss(actions, gt_actions)
+            else:
+                loss = F.l1_loss(actions, gt_actions)
             return loss
         else: 
             return actions

@@ -27,93 +27,6 @@ import mediapy as media
 import time
 import random
 
-def dexycb_restructure(traj, action_horizon=16, dataset_name='dexycb'):
-    # traj = traj['steps']
-    traj_len = tf.shape(traj["observation"]["object_pose"])[0]
-
-    hand_pose = traj["observation"]["hand_pose"] #traj_len, 4,4
-    gripper_distance = traj["observation"]["gripper_distance"]
-    proprio_rot6d = tf.reshape(hand_pose[:,:2,:3],[-1,6])
-    proprio = tf.concat([hand_pose[:, :3, 3], proprio_rot6d, gripper_distance[:,None]], axis=-1)
-    
-    # delta_hand_pose = tf.linalg.inv(hand_pose[:-1]) @ hand_pose[1:]
-    # delta_rot6d = tf.reshape(delta_hand_pose[:,:2,:3],[-1,6])
-    # delta_hand_action = tf.concat([delta_hand_pose[:, :3, 3], delta_rot6d, gripper_distance[1:,None]], axis=-1)
-    
-    # action = tf.concat([delta_hand_action, tf.zeros((1, 10))], axis=0)
-    
-    
-    # actions are not pre-chunked
-    action_chunk_indices = tf.range(traj_len)[:, None] + tf.range(
-        1, action_horizon + 1
-    )  # [traj_len, action_horizon], start from 1 to exclude the current proprio
-    # repeat the last action at the end of the trajectory rather than going out of bounds
-    action_chunk_indices = tf.minimum(action_chunk_indices, traj_len - 1)
-    # gather
-    # for delta action, we need to recalculate the delta action wrt the current proprio
-    state_t = hand_pose
-    chunked_proprio = tf.gather(
-        state_t, action_chunk_indices
-    ) # [traj_len, action_horizon, proprio_dim]
-    broad_casted_proprio = tf.broadcast_to(tf.linalg.inv(state_t)[:,None], [traj_len, action_horizon, 4, 4])
-    delta_hand_pose = broad_casted_proprio @ chunked_proprio
-    chunked_gripper_distance = tf.gather(gripper_distance, action_chunk_indices)
-    delta_rot6d = tf.reshape(delta_hand_pose[...,:2,:3],[traj_len,action_horizon,6])
-    delta_hand_action = tf.concat([delta_hand_pose[..., :3, 3], delta_rot6d, chunked_gripper_distance[...,None]], axis=-1)
-    action = delta_hand_action# [traj_len, action_horizon, action_dim]
-    
-    prev_action = tf.concat([tf.zeros((1, action.shape[-1])), action[:-1,0]], axis=0)
-    
-    new_traj = {
-        "observation":{
-            "image_primary": traj["observation"]["image"], #traj_len, 224, 224, 3, to be reshaped
-            # "image_wrist": tf.zeros_like(traj["observation"]["image"]), #traj_len, 224, 224, 3, to be reshaped
-            "image_wrist":traj["observation"]["image"], 
-            "proprio": proprio, # traj_len, 10
-            "prev_action": prev_action, # traj_len, 10
-        },
-        'state_t': hand_pose, # traj_len, 4, 4
-        "extrinsics": traj["extrinsics"], # traj_len, 4, 4
-        "intrinsics": traj["intrinsics"], # traj_len, 3, 3
-        "task": {"language_instruction":traj["task"]},
-        "action": tf.cast(action, tf.float32), # traj_len, 10, last action 0
-        "dataset_name": tf.repeat('dexycb', traj_len)
-    }
-
-    return new_traj
-
-
-def libero_restructure(traj, action_horizon=16, dataset_name='libero'):
-    # traj = traj['steps']
-    # fetch future actions
-    traj_len = tf.shape(traj["observation"]["proprio"])[0]
-    # chuck future actions from 0-action_horizon-1
-    action_chunk_indices = tf.range(traj_len)[:, None] + tf.range(
-        0, action_horizon
-    )  # [traj_len, action_horizon], start from 0
-    # repeat the last action at the end of the trajectory rather than going out of bounds
-    action_chunk_indices = tf.minimum(action_chunk_indices, traj_len - 1)
-    # gather
-    chunked_action = tf.gather(
-        traj["action"], action_chunk_indices
-    )  # [traj_len, action_horizon, action_dim]
-
-    new_traj = {
-        "observation": {
-            "image_primary": traj["observation"]["image"],  # traj_len, 224, 224, 3, to be reshaped
-            "proprio": traj["observation"]["proprio"],  # traj_len, 6
-            "prev_action": traj['observation']['prev_action'],  # traj_len, 7
-        },
-        "extrinsics": traj["extrinsics"],  # traj_len, 4, 4
-        "intrinsics": traj["intrinsics"],  # traj_len, 3, 3
-        "task": {"language_instruction": traj["task"]},
-        "action": tf.cast(chunked_action, tf.float32),  # traj_len, action_horizon, action_dim
-        "dataset_name": tf.repeat('libero', traj_len)
-    }
-
-    return new_traj
-
-
 def droid_restructure(traj, action_horizon=16, dataset_name='droid'):
     if 'steps' in traj.keys():
         traj = traj['steps']
@@ -183,66 +96,41 @@ def droid_restructure(traj, action_horizon=16, dataset_name='droid'):
 
     return new_traj
 
+def invert_gripper_actions(actions: tf.Tensor) -> tf.Tensor:
+    return 1 - actions
 
-def hoi4d_restructure(traj, action_horizon=16, dataset_name='hoi4d'):
-    
-    if 'steps' in traj.keys():
-        traj = traj['steps']
+def libero_restructure(traj, action_horizon=1, dataset_name='libero'):
+    gripper_action = traj["action"][:, -1:]
+    gripper_action = invert_gripper_actions(tf.clip_by_value(gripper_action, 0, 1))
 
-    traj_len = tf.shape(traj["observation"]["hand_pose"])[0]
+    traj_len = tf.shape(traj["observation"]["state"])[0]
 
-    hand_pose = traj["observation"]["hand_pose"] #traj_len, 4,4
-    gripper_distance = traj["observation"]["gripper_distance"]
-    proprio_rot6d = tf.reshape(hand_pose[:,:2,:3],[-1,6])
-    proprio = tf.concat([hand_pose[:, :3, 3], proprio_rot6d, gripper_distance[:,None]], axis=-1)
-    
-    # delta_hand_pose = tf.linalg.inv(hand_pose[:-1]) @ hand_pose[1:]
-    # delta_rot6d = tf.reshape(delta_hand_pose[:,:2,:3],[-1,6])
-    # delta_hand_action = tf.concat([delta_hand_pose[:, :3, 3], delta_rot6d, gripper_distance[1:,None]], axis=-1)
-    
-    # action = tf.concat([delta_hand_action, tf.zeros((1, 10))], axis=0)
-    
-    # actions are not pre-chunked
+    action_t = tf.concat(
+        [
+            traj["action"][:, :6],
+            gripper_action,
+        ],
+        axis=1,
+    )
+
     action_chunk_indices = tf.range(traj_len)[:, None] + tf.range(
-        1, action_horizon + 1
-    )  # [traj_len, action_horizon], start from 1 to exclude the current proprio
+        0, action_horizon
+    )  # [traj_len, action_horizon], start from 0
     # repeat the last action at the end of the trajectory rather than going out of bounds
     action_chunk_indices = tf.minimum(action_chunk_indices, traj_len - 1)
-    # gather
-    # for delta action, we need to recalculate the delta action wrt the current proprio
-    state_t = hand_pose
-    chunked_proprio = tf.gather(
-        state_t, action_chunk_indices
-    ) # [traj_len, action_horizon, proprio_dim]
-    broad_casted_proprio = tf.broadcast_to(tf.linalg.inv(state_t)[:,None], [traj_len, action_horizon, 4, 4])
-    delta_hand_pose = broad_casted_proprio @ chunked_proprio
-    chunked_gripper_distance = tf.gather(gripper_distance, action_chunk_indices)
-    delta_rot6d = tf.reshape(delta_hand_pose[...,:2,:3],[traj_len,action_horizon,6])
-    delta_hand_action = tf.concat([delta_hand_pose[..., :3, 3], delta_rot6d, chunked_gripper_distance[...,None]], axis=-1)
-    action = delta_hand_action# [traj_len, action_horizon, action_dim]
-    
-    prev_action = tf.concat([tf.zeros((1, action.shape[-1])), action[:-1,0]], axis=0)
-    
-    dummy_extrinsics = tf.eye(4, batch_shape=[traj_len])
-    
-    if "intrinsics" not in traj.keys():
-        traj["intrinsics"] = tf.repeat(tf.eye(3)[None], traj_len, axis=0)
-    
+    chunked_action = tf.gather(
+        action_t, action_chunk_indices
+    )  # [traj_len, action_horizon, action_dim]
+
     new_traj = {
-        "observation":{
-            "image_primary": traj["observation"]["image"], #traj_len, 224, 224, 3, to be reshaped            
-            # "proprio": proprio, # traj_len, 10
-            # "image_wrist": tf.zeros_like(traj["observation"]["image"]), #traj_len, 224, 224, 3, to be reshaped
-            "image_wrist":traj["observation"]["image"],
-            "proprio": proprio, # traj_len, 10
-            "prev_action": prev_action, # traj_len, 10
+        "observation": {
+            "image_primary": traj["observation"]["image"],  # traj_len, 224, 224, 3, to be reshaped
+            "image_wrist": traj["observation"]["wrist_image"],  # traj_len, 224, 224, 3, to be reshapeh
+            "proprio": traj["observation"]["state"], # traj_len, 8
         },
-        'state_t': hand_pose, # traj_len, 4, 4
-        "extrinsics": dummy_extrinsics, # traj_len, 4, 4
-        "intrinsics": traj["intrinsics"], # traj_len, 3, 3
-        "task": {"language_instruction":traj["task"]},
-        "action": tf.cast(action, tf.float32), # traj_len, 10, last action 0
-        "dataset_name": tf.repeat(dataset_name, traj_len)
+        "task": {"language_instruction": traj["language_instruction"]},
+        "action": tf.cast(chunked_action, tf.float32),  # traj_len, 8
+        "dataset_name": tf.repeat('libero', traj_len),
     }
 
     return new_traj
@@ -515,18 +403,10 @@ def apply_frame_transforms(
         # augment all images with the same seed, skipping padding images
         def aug_and_dropout(frame: dict):
             seed = tf.random.uniform([2], maxval=tf.dtypes.int32.max, dtype=tf.int32)
-            dropout_fn = partial(
-                obs_transforms.image_dropout,
-                seed=seed,
-                dropout_prob=image_dropout_prob,
-                always_keep_key=image_dropout_keep_key,
-            )
             aug_fn = partial(
                 obs_transforms.augment, seed=seed, augment_kwargs=image_augment_kwargs
             )
-            frame = apply_obs_transform(dropout_fn, frame)
             frame = apply_obs_transform(aug_fn, frame)
-            
             return frame
 
         dataset = dataset.frame_map(aug_and_dropout, num_parallel_calls)
@@ -608,7 +488,7 @@ def make_dataset_from_rlds(
     if "val" not in builder.info.splits:
         # split = "train[:95%]" if train else "train[95%:]"
         split = f"train[:{train_ratio}%]" if train else "train[95%:]"
-        
+        # split = "train" if train else "train[95%:]"
     else:
         split = "train" if train else "val"
     

@@ -6,7 +6,7 @@
 #SBATCH --time=48:00:00
 #SBATCH --gres=gpu:2
 #SBATCH --mem=64GB
-#SBATCH --cpus-per-task=28
+#SBATCH --cpus-per-task=24
 
 conda run -n otter --no-capture-output /bin/bash -c "TF_FORCE_GPU_ALLOW_GROWTH=true torchrun \
     --nproc_per_node=2 \
@@ -20,7 +20,7 @@ conda run -n otter --no-capture-output /bin/bash -c "TF_FORCE_GPU_ALLOW_GROWTH=t
     --model-cfg.action-dim 7 \
     --model-cfg.proprio-input-dim 7 \
     --trainer-cfg.num_workers 24 \
-    --shared-cfg.batch-size 320"
+    --shared-cfg.batch-size 256"
 
 #CUDA_VISIBLE_DEVICES=0 python script/train.py \
 #    --logging-cfg.log-name otter_bridge_debug \

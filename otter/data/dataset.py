@@ -200,6 +200,40 @@ def icrt_restructure(traj, action_horizon=16, dataset_name='icrt'):
 
     return new_traj
 
+def bridge_restructure(traj, action_horizon=10, dataset_name='bridge'):
+    if 'steps' in traj.keys():
+        traj = traj['steps']
+        
+    traj_len = tf.shape(traj["observation"]["image_0"])[0]
+    
+    image_primary = traj["observation"]["image_0"]
+    #image_secondary = traj["observation"]["image_1"]
+    proprio = traj["observation"]["state"]
+    actions = traj["action"]
+
+
+    action_chunk_indices = tf.range(traj_len)[:, None] + tf.range(
+        0, action_horizon
+    )  # [traj_len, action_horizon], start from 0
+    # repeat the last action at the end of the trajectory rather than going out of bounds
+    action_chunk_indices = tf.minimum(action_chunk_indices, traj_len - 1)
+    chunked_action = tf.gather(
+        actions, action_chunk_indices
+    )  # [traj_len, action_horizon, action_dim]
+
+    new_traj = {
+        "observation": {
+            "image_primary": image_primary,  # traj_len, 224, 224, 3, to be reshaped
+            #"image_wrist": traj["observation"]["wrist_image"],  # traj_len, 224, 224, 3, to be reshapeh
+            "proprio": proprio, # traj_len, 8
+        },
+        "task": {"language_instruction": traj["language_instruction"]},
+        "action": tf.cast(chunked_action, tf.float32),  # traj_len, 8
+        "dataset_name": tf.repeat('bridge', traj_len),
+    }
+
+    return new_traj
+
 
 def apply_trajectory_transforms(
     dataset: dl.DLataset,

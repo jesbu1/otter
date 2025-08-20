@@ -182,8 +182,8 @@ def main(args: ExperimentConfig):
     # Set up wandb logging
     if misc.is_main_process() and args.logging_cfg.log_name is not None:
         wandb.init(
-            entity="otter",
-            project="otter",
+            entity="clvr",
+            project="p-masked-vla",
             name=args.logging_cfg.log_name,
             config=args,
             sync_tensorboard=True

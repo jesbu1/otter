@@ -2,7 +2,7 @@ import dataclasses
 from typing import Literal, Optional, Tuple, Union, List
 import enum
 import pathlib
-from otter.data.dataset import hoi4d_restructure, dexycb_restructure, droid_restructure, icrt_restructure
+from otter.data.dataset import droid_restructure, icrt_restructure, bridge_restructure
 
 import tyro
 
@@ -31,53 +31,61 @@ class DatasetConfig:
         if not self.dataset_kwargs:  # Changed condition since it's now an empty list
             self.dataset_kwargs = [
                 dict(
-                    name='icrt_pickplace', # 473
-                    data_dir='dataset/icrt_pickplace/1.0.0',
-                    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
+                    name='bridge', # 473
+                    data_dir='/scr/jesse/bridge_v2/1.0.0',
+                    shuffle=True, action_normalization_mask=[False] * 7 , skip_norm=True,
                     action_proprio_normalization_type='normal',
                     proprio_noise=0.01,
-                    restructure = icrt_restructure,
+                    restructure = bridge_restructure,
                 ),
-                dict(
-                    name='icrt_stack', #109
-                    data_dir='dataset/icrt_stack_mul/1.0.0',
-                    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
-                    action_proprio_normalization_type='normal',
-                    proprio_noise=0.01,
-                    restructure = icrt_restructure,
-                ),
-                dict(
-                    name='icrt_0926', #150
-                    data_dir='dataset/icrt_pickplace_1/1.0.0',
-                    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
-                    action_proprio_normalization_type='normal',
-                    proprio_noise=0.01,
-                    restructure = icrt_restructure,
-                ),
-                dict(
-                    name = 'icrt_poke', #185
-                    data_dir = 'dataset/icrt_poke/1.0.0',
-                    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
-                    action_proprio_normalization_type = 'normal',
-                    proprio_noise = 0.01,
-                    restructure = icrt_restructure,
-                ),
-                dict(
-                    name = 'icrt_drawer', #167
-                    data_dir = 'dataset/icrt_drawer/1.0.0',
-                    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
-                    action_proprio_normalization_type = 'normal',
-                    proprio_noise = 0.01,
-                    restructure = icrt_restructure,
-                ),
-                dict(
-                    name = 'icrt_pour', #101
-                    data_dir = 'dataset/icrt_pour/1.0.0',
-                    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
-                    action_proprio_normalization_type = 'normal',
-                    proprio_noise = 0.01,
-                    restructure = icrt_restructure,
-                ),
+                #dict(
+                #    name='icrt_pickplace', # 473
+                #    data_dir='dataset/icrt_pickplace/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
+                #    action_proprio_normalization_type='normal',
+                #    proprio_noise=0.01,
+                #    restructure = icrt_restructure,
+                #),
+                #dict(
+                #    name='icrt_stack', #109
+                #    data_dir='dataset/icrt_stack_mul/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
+                #    action_proprio_normalization_type='normal',
+                #    proprio_noise=0.01,
+                #    restructure = icrt_restructure,
+                #),
+                #dict(
+                #    name='icrt_0926', #150
+                #    data_dir='dataset/icrt_pickplace_1/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True] * 9 + [False], skip_norm=True,
+                #    action_proprio_normalization_type='normal',
+                #    proprio_noise=0.01,
+                #    restructure = icrt_restructure,
+                #),
+                #dict(
+                #    name = 'icrt_poke', #185
+                #    data_dir = 'dataset/icrt_poke/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
+                #    action_proprio_normalization_type = 'normal',
+                #    proprio_noise = 0.01,
+                #    restructure = icrt_restructure,
+                #),
+                #dict(
+                #    name = 'icrt_drawer', #167
+                #    data_dir = 'dataset/icrt_drawer/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
+                #    action_proprio_normalization_type = 'normal',
+                #    proprio_noise = 0.01,
+                #    restructure = icrt_restructure,
+                #),
+                #dict(
+                #    name = 'icrt_pour', #101
+                #    data_dir = 'dataset/icrt_pour/1.0.0',
+                #    shuffle=True, action_normalization_mask=[True]*9+[False], skip_norm=True,
+                #    action_proprio_normalization_type = 'normal',
+                #    proprio_noise = 0.01,
+                #    restructure = icrt_restructure,
+                #),
             ]
             
         if not self.traj_transform_kwargs:  # Changed condition
@@ -239,6 +247,9 @@ class SharedConfig:
 
     # Number of cameras 
     camera_keys : Tuple[str] = ("image_primary", "image_wrist")
+
+    # use mse loss
+    mse_loss: bool = False
 
     # Number of future timesteps to predict actions for
     action_horizon: int = 12

@@ -224,7 +224,7 @@ def bridge_restructure(traj, action_horizon=10, dataset_name='bridge'):
     new_traj = {
         "observation": {
             "image_primary": image_primary,  # traj_len, 224, 224, 3, to be reshaped
-            #"image_wrist": traj["observation"]["wrist_image"],  # traj_len, 224, 224, 3, to be reshapeh
+            "image_wrist": tf.zeros_like(image_primary),  # traj_len, 224, 224, 3, to be reshapeh
             "proprio": proprio, # traj_len, 8
         },
         "task": {"language_instruction": traj["language_instruction"]},
